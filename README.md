@@ -161,6 +161,15 @@ You can adjust these values in the `TestExecutionHarness` constructor call in `s
 
 Recommended future improvement: move these to environment variables or a config file for easier CI/environment tuning.
 
+### LLM-backed generation (optional)
+
+The harness now supports LLM-powered test-case creation and test-code generation.
+
+- Set `OPENAI_API_KEY` to enable LLM calls.
+- Optionally set `OPENAI_MODEL` (default: `gpt-4.1-mini`).
+
+If `OPENAI_API_KEY` is not present, the harness falls back to deterministic built-in templates.
+
 ---
 
 ## How to add new capabilities
