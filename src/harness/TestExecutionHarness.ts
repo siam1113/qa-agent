@@ -1,0 +1,124 @@
+import { AgentEngine } from "../agent/AgentEngine";
+import { SelfHealingEngine } from "../healing/SelfHealingEngine";
+import { HarnessState } from "../state/HarnessState";
+import { FileStorage } from "../storage/FileStorage";
+import { BrowserTools } from "../tools/BrowserTools";
+import { DeterministicVerifier } from "../verifier/DeterministicVerifier";
+import { HarnessConfig, StepAttempt, TestCaseExecutionResult, TestStep } from "../types";
+
+export class TestExecutionHarness {
+  constructor(
+    private readonly config: HarnessConfig,
+    private readonly agent: AgentEngine,
+    private readonly tools: BrowserTools,
+    private readonly verifier: DeterministicVerifier,
+    private readonly healing: SelfHealingEngine,
+    private readonly state: HarnessState,
+    private readonly storage: FileStorage
+  ) {}
+
+  async run(userStory: string): Promise<void> {
+    const startedAt = new Date().toISOString();
+    this.state.userStory = userStory;
+    this.state.testCases = this.agent.generateTestCases(userStory);
+    this.state.log(`Generated ${this.state.testCases.length} test case(s)`);
+
+    await this.tools.init();
+    try {
+      for (const testCase of this.state.testCases) {
+        const result: TestCaseExecutionResult = {
+          testCaseId: testCase.id,
+          testCaseName: testCase.name,
+          status: "passed",
+          stepAttempts: [],
+          passedStepIds: []
+        };
+
+        for (const step of testCase.steps) {
+          const stepSuccess = await this.executeStepWithRetries(testCase.id, step, result);
+          if (!stepSuccess) {
+            result.status = "failed";
+            result.failedStepId = step.id;
+            break;
+          }
+          result.passedStepIds.push(step.id);
+        }
+
+        this.state.results.push(result);
+      }
+    } finally {
+      await this.tools.close();
+    }
+
+    const report = this.state.buildReport(startedAt);
+    this.storage.write("reports/execution-report.json", JSON.stringify(report, null, 2));
+    this.storage.write("artifacts/generated-test-cases.json", JSON.stringify(this.state.testCases, null, 2));
+  }
+
+  private async executeStepWithRetries(testCaseId: string, step: TestStep, testResult: TestCaseExecutionResult): Promise<boolean> {
+    const suggestion = this.agent.suggestAction(step);
+    const candidateSelectors = this.healing.buildAlternativeSelectors(step.selector, suggestion.alternatives);
+
+    for (let attempt = 1; attempt <= this.config.maxRetriesPerStep; attempt++) {
+      let selector = step.selector;
+      if (step.selector && candidateSelectors.length > 0) {
+        selector = candidateSelectors[Math.min(attempt - 1, candidateSelectors.length - 1)];
+      }
+
+      const executed = await this.executeTool(step, selector);
+      const verified = await this.verifier.verify({ ...step, selector }, executed);
+
+      const stepAttempt: StepAttempt = {
+        stepId: step.id,
+        attempt,
+        success: verified.ok,
+        message: verified.reason,
+        selectorUsed: selector,
+        failureType: verified.ok ? undefined : this.healing.classifyFailure(verified.reason),
+        timestamp: new Date().toISOString()
+      };
+
+      this.state.addStepAttempt(stepAttempt);
+      testResult.stepAttempts.push(stepAttempt);
+      this.state.log(`[${testCaseId}/${step.id}] attempt=${attempt} success=${verified.ok} reason=${verified.reason}`);
+
+      if (verified.ok) {
+        const domResult = await this.tools.get_dom();
+        if (domResult.dom) {
+          this.state.saveDomSnapshot(testCaseId, domResult.dom);
+          this.storage.write(`snapshots/${testCaseId}-${step.id}-attempt${attempt}.html`, domResult.dom);
+        }
+        await this.tools.take_screenshot(`${this.config.outputDir}/screenshots/${testCaseId}-${step.id}.png`);
+        return true;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    return false;
+  }
+
+  private async executeTool(step: TestStep, selectorOverride?: string) {
+    switch (step.action) {
+      case "open_page":
+        return this.tools.open_page(this.fullUrl(step.url ?? "/"));
+      case "click":
+        return this.tools.click(selectorOverride ?? step.selector ?? "");
+      case "type":
+        return this.tools.type(selectorOverride ?? step.selector ?? "", step.value ?? "");
+      case "extract_text":
+        return this.tools.extract_text(selectorOverride ?? step.selector ?? "");
+      case "get_dom":
+        return this.tools.get_dom();
+      case "take_screenshot":
+        return this.tools.take_screenshot(`${this.config.outputDir}/screenshots/manual-step.png`);
+      default:
+        return { success: false, message: "Unsupported action" };
+    }
+  }
+
+  private fullUrl(path: string): string {
+    if (path.startsWith("http")) return path;
+    return `${this.config.baseUrl ?? "http://localhost:3000"}${path}`;
+  }
+}
