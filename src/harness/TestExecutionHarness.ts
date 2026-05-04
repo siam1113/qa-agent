@@ -76,13 +76,10 @@ export class TestExecutionHarness {
     const suggestion = this.agent.suggestAction(step);
     const candidateSelectors = this.healing.buildAlternativeSelectors(step.selector, suggestion.alternatives);
     let lastFailureReason: string | undefined;
-    this.state.log(`[${testCaseId}/${step.id}] Candidate selectors: ${candidateSelectors.join(" | ") || "<none>"}`);
 
     for (let attempt = 1; attempt <= this.config.maxRetriesPerStep; attempt++) {
       let selector = step.selector;
-      if (step.selector && candidateSelectors.length > 0) {
-        selector = candidateSelectors[Math.min(attempt - 1, candidateSelectors.length - 1)];
-
+      if (step.action === "click" || step.action === "type" || step.action === "extract_text") {
         const domForLocatorChoice = await this.tools.get_dom();
         const llmPreferredSelector = await this.agent.chooseBestLocator(
           step,
@@ -91,18 +88,26 @@ export class TestExecutionHarness {
           attempt,
           lastFailureReason
         );
+
         if (llmPreferredSelector) {
-          const preferredIndex = candidateSelectors.indexOf(llmPreferredSelector);
-          if (preferredIndex > 0) {
-            candidateSelectors.splice(preferredIndex, 1);
+          if (!candidateSelectors.includes(llmPreferredSelector)) {
             candidateSelectors.unshift(llmPreferredSelector);
+          } else {
+            const preferredIndex = candidateSelectors.indexOf(llmPreferredSelector);
+            if (preferredIndex > 0) {
+              candidateSelectors.splice(preferredIndex, 1);
+              candidateSelectors.unshift(llmPreferredSelector);
+            }
           }
           selector = llmPreferredSelector;
           this.state.log(`[${testCaseId}/${step.id}] LLM preferred selector on attempt ${attempt}: ${llmPreferredSelector}`);
-        } else {
-          this.state.log(`[${testCaseId}/${step.id}] LLM selector preference unavailable on attempt ${attempt}; using deterministic selector order`);
+        } else if (candidateSelectors.length > 0) {
+          selector = candidateSelectors[Math.min(attempt - 1, candidateSelectors.length - 1)];
+          this.state.log(`[${testCaseId}/${step.id}] LLM selector preference unavailable on attempt ${attempt}; using deterministic selector=${selector}`);
         }
       }
+
+      this.state.log(`[${testCaseId}/${step.id}] Candidate selectors: ${candidateSelectors.join(" | ") || "<none>"}`);
 
       this.state.log(`[${testCaseId}/${step.id}] Attempt ${attempt} executing action=${step.action} selector=${selector ?? "<none>"}`);
       let executed;

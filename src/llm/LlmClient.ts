@@ -38,10 +38,10 @@ export class LlmClient {
   }
 
   async chooseLocator(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string): Promise<string | null> {
-    if (!selectors.length) return null;
     this.log(`Choosing locator via OpenAI from ${selectors.length} candidate(s)`);
     const prompt = [
-      "Pick the single best selector for reliable browser automation.",
+      "Pick the single best CSS selector for reliable browser automation.",
+      "You may propose a selector not listed in candidates if DOM suggests a better one.",
       "Return strict JSON only: {\"selector\":\"string\"}",
       `Step description: ${stepDescription}`,
       `Retry attempt: ${attempt ?? 1}`,
@@ -54,9 +54,9 @@ export class LlmClient {
     try {
       const cleaned = text.replace(/^```json\s*/i, "").replace(/^```|```$/g, "").trim();
       const parsed = JSON.parse(cleaned) as { selector?: string };
-      if (parsed.selector && selectors.includes(parsed.selector)) {
+      if (parsed.selector?.trim()) {
         this.log(`Locator selected by OpenAI: ${parsed.selector}`);
-        return parsed.selector;
+        return parsed.selector.trim();
       }
     } catch {
       // Fall through to deterministic fallback.
