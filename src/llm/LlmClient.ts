@@ -1,8 +1,9 @@
 import { ActionType, TestCase } from "../types";
 
 interface OpenAIResponse {
+  output_text?: string;
   output?: Array<{
-    content?: Array<{ type?: string; text?: string }>;
+    content?: Array<{ type?: string; text?: string; value?: string }>;
   }>;
 }
 
@@ -15,32 +16,73 @@ export class LlmClient {
   }
 
   async generateTestCases(userStory: string): Promise<TestCase[] | null> {
+    this.log("Generating test cases via OpenAI Responses API");
     const schemaHint = `Return strict JSON only: {"testCases":[{"id":"string","name":"string","expectedOutcome":"string","steps":[{"id":"string","description":"string","action":"open_page|click|type|extract_text|get_dom|take_screenshot","selector":"string?","value":"string?","expected":"string?","url":"string?"}]}]}`;
     const prompt = `${schemaHint}\nUser story: ${userStory}`;
     const text = await this.responses(prompt, "You generate concise browser test cases.");
-    if (!text) return null;
-    return this.safeParseTestCases(text);
+    if (!text) {
+      this.log("No LLM text returned for test-case generation");
+      return null;
+    }
+    const parsed = this.safeParseTestCases(text);
+    this.log(parsed?.length ? `Parsed ${parsed.length} LLM test case(s)` : "Failed to parse LLM test-case JSON; fallback will be used");
+    return parsed;
   }
 
   async generateCode(framework: "playwright" | "cypress", tests: TestCase[]): Promise<string | null> {
+    this.log(`Generating ${framework} test code via OpenAI Responses API for ${tests.length} test case(s)`);
     const prompt = `Generate a ${framework} test file from this JSON test list. Return code only.\n${JSON.stringify(tests)}`;
-    return this.responses(prompt, "You are a senior QA automation engineer.");
+    const code = await this.responses(prompt, "You are a senior QA automation engineer.");
+    this.log(code ? `Received LLM-generated ${framework} code (${code.length} chars)` : `No LLM code returned for ${framework}; deterministic fallback will be used`);
+    return code;
   }
 
   private async responses(input: string, instructions: string): Promise<string | null> {
-    if (!this.apiKey) return null;
+    if (!this.apiKey) {
+      this.log("OPENAI_API_KEY is not set; skipping OpenAI call");
+      return null;
+    }
+    this.log(`Calling OpenAI model=${this.model}`);
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ model: this.model, instructions, input })
+      body: JSON.stringify({
+        model: this.model,
+        instructions,
+        input,
+        text: { format: { type: "text" } }
+      })
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      this.log(`OpenAI call failed with status=${response.status}`);
+      return null;
+    }
     const json = (await response.json()) as OpenAIResponse;
+    if (json.output_text?.trim()) {
+      this.log(`OpenAI response used top-level output_text (${json.output_text.length} chars)`);
+      return json.output_text.trim();
+    }
+
     const parts = json.output?.flatMap((o) => o.content ?? []) ?? [];
-    return parts.filter((p) => p.type === "output_text").map((p) => p.text ?? "").join("").trim() || null;
+    const extracted = parts
+      .filter((p) => p.type === "output_text" || p.type === "text")
+      .map((p) => p.text ?? p.value ?? "")
+      .join("")
+      .trim();
+
+    if (extracted) {
+      this.log(`OpenAI response used chunked text output (${extracted.length} chars)`);
+      return extracted;
+    }
+    this.log("OpenAI response did not contain supported text output");
+    return null;
+  }
+
+  private log(message: string): void {
+    console.log(`[LlmClient] ${message}`);
   }
 
   private safeParseTestCases(raw: string): TestCase[] | null {
