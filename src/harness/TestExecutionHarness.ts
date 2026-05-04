@@ -20,7 +20,9 @@ export class TestExecutionHarness {
   async run(userStory: string): Promise<void> {
     const startedAt = new Date().toISOString();
     this.state.log(`Harness started for story: ${userStory}`);
+    this.state.log(`Harness configuration: baseUrl=${this.config.baseUrl ?? "http://localhost:3000"} maxRetriesPerStep=${this.config.maxRetriesPerStep} outputDir=${this.config.outputDir}`);
     this.state.userStory = userStory;
+    this.state.log("Requesting test-case generation from agent");
     this.state.testCases = await this.agent.generateTestCases(userStory);
     this.state.log(`Generated ${this.state.testCases.length} test case(s)`);
 
@@ -63,8 +65,10 @@ export class TestExecutionHarness {
   }
 
   private async executeStepWithRetries(testCaseId: string, step: TestStep, testResult: TestCaseExecutionResult): Promise<boolean> {
+    this.state.log(`[${testCaseId}/${step.id}] Building action suggestion and selector alternatives`);
     const suggestion = this.agent.suggestAction(step);
     const candidateSelectors = this.healing.buildAlternativeSelectors(step.selector, suggestion.alternatives);
+    this.state.log(`[${testCaseId}/${step.id}] Candidate selectors: ${candidateSelectors.join(" | ") || "<none>"}`);
 
     for (let attempt = 1; attempt <= this.config.maxRetriesPerStep; attempt++) {
       let selector = step.selector;
@@ -72,9 +76,18 @@ export class TestExecutionHarness {
         selector = candidateSelectors[Math.min(attempt - 1, candidateSelectors.length - 1)];
       }
 
-      const executed = await this.executeTool(step, selector);
+      this.state.log(`[${testCaseId}/${step.id}] Attempt ${attempt} executing action=${step.action} selector=${selector ?? "<none>"}`);
+      let executed;
+      try {
+        executed = await this.executeTool(step, selector);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.state.log(`[${testCaseId}/${step.id}] Tool execution threw error on attempt ${attempt}: ${reason}`);
+        executed = { success: false, message: reason };
+      }
       this.state.log(`[${testCaseId}/${step.id}] Tool execution result: success=${executed.success} message=${executed.message}`);
       const verified = await this.verifier.verify({ ...step, selector }, executed);
+      this.state.log(`[${testCaseId}/${step.id}] Verifier result on attempt ${attempt}: ok=${verified.ok} reason=${verified.reason}`);
 
       const stepAttempt: StepAttempt = {
         stepId: step.id,
@@ -91,18 +104,23 @@ export class TestExecutionHarness {
       this.state.log(`[${testCaseId}/${step.id}] attempt=${attempt} success=${verified.ok} reason=${verified.reason}`);
 
       if (verified.ok) {
+        this.state.log(`[${testCaseId}/${step.id}] Verification passed; capturing DOM and screenshot`);
         const domResult = await this.tools.get_dom();
         if (domResult.dom) {
           this.state.saveDomSnapshot(testCaseId, domResult.dom);
           this.storage.write(`snapshots/${testCaseId}-${step.id}-attempt${attempt}.html`, domResult.dom);
+          this.state.log(`[${testCaseId}/${step.id}] DOM snapshot persisted for attempt ${attempt}`);
         }
         await this.tools.take_screenshot(`${this.config.outputDir}/screenshots/${testCaseId}-${step.id}.png`);
+        this.state.log(`[${testCaseId}/${step.id}] Screenshot captured for successful attempt ${attempt}`);
         return true;
       }
 
+      this.state.log(`[${testCaseId}/${step.id}] Verification failed on attempt ${attempt}; waiting before retry`);
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
+    this.state.log(`[${testCaseId}/${step.id}] Exhausted all ${this.config.maxRetriesPerStep} attempt(s) without success`);
     return false;
   }
 

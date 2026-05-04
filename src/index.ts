@@ -17,11 +17,11 @@ async function main(): Promise<void> {
   const outputDir = resolve("output");
   mkdirSync(outputDir, { recursive: true });
 
-  const state = new HarnessState();
+  const state = new HarnessState(true);
   state.log(`Initializing harness for framework=${framework}`);
-  const storage = new FileStorage(outputDir);
+  const storage = new FileStorage(outputDir, (message) => state.log(message));
   const agent = new AgentEngine();
-  const tools = new BrowserTools();
+  const tools = new BrowserTools((message) => state.log(message));
   const verifier = new DeterministicVerifier(tools);
   const healing = new SelfHealingEngine();
 
