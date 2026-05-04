@@ -1,7 +1,12 @@
 import { TestCase, TestStep } from "../types";
+import { LlmClient } from "../llm/LlmClient";
 
 export class TestCodeGenerator {
-  generate(framework: "playwright" | "cypress", tests: TestCase[]): string {
+  constructor(private readonly llm: LlmClient = new LlmClient()) {}
+
+  async generate(framework: "playwright" | "cypress", tests: TestCase[]): Promise<string> {
+    const llmCode = await this.llm.generateCode(framework, tests);
+    if (llmCode) return llmCode;
     return framework === "playwright" ? this.playwright(tests) : this.cypress(tests);
   }
 

@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   storage.write("reports/final-report.json", reporter.toJson(state.buildReport(new Date().toISOString())));
   storage.write(
     framework === "playwright" ? "generated/generated.spec.ts" : "generated/generated.cy.ts",
-    codegen.generate(framework, state.testCases)
+    await codegen.generate(framework, state.testCases)
   );
 
   console.log("Harness execution complete. Output stored in ./output");

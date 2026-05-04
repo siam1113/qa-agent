@@ -20,7 +20,7 @@ export class TestExecutionHarness {
   async run(userStory: string): Promise<void> {
     const startedAt = new Date().toISOString();
     this.state.userStory = userStory;
-    this.state.testCases = this.agent.generateTestCases(userStory);
+    this.state.testCases = await this.agent.generateTestCases(userStory);
     this.state.log(`Generated ${this.state.testCases.length} test case(s)`);
 
     await this.tools.init();

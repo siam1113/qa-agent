@@ -1,8 +1,13 @@
 import { AgentActionSuggestion, TestCase, TestStep } from "../types";
+import { LlmClient } from "../llm/LlmClient";
 
 export class AgentEngine {
-  generateTestCases(userStory: string): TestCase[] {
-    // In production this method calls an LLM and normalizes output to TestCase schema.
+  constructor(private readonly llm: LlmClient = new LlmClient()) {}
+
+  async generateTestCases(userStory: string): Promise<TestCase[]> {
+    const llmCases = await this.llm.generateTestCases(userStory);
+    if (llmCases?.length) return llmCases;
+
     if (/login/i.test(userStory)) {
       return [
         {
