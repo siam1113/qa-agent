@@ -37,13 +37,15 @@ export class LlmClient {
     return code;
   }
 
-  async chooseLocator(stepDescription: string, selectors: string[], dom?: string): Promise<string | null> {
+  async chooseLocator(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string): Promise<string | null> {
     if (!selectors.length) return null;
     this.log(`Choosing locator via OpenAI from ${selectors.length} candidate(s)`);
     const prompt = [
       "Pick the single best selector for reliable browser automation.",
       "Return strict JSON only: {\"selector\":\"string\"}",
       `Step description: ${stepDescription}`,
+      `Retry attempt: ${attempt ?? 1}`,
+      `Previous failure signal: ${lastFailureReason ?? "<none>"}`,
       `Candidate selectors: ${JSON.stringify(selectors)}`,
       `Current DOM snapshot:\n${this.trimDomForPrompt(dom)}`
     ].join("\n");
