@@ -37,6 +37,39 @@ export class LlmClient {
     return code;
   }
 
+  async chooseLocator(stepDescription: string, selectors: string[], dom?: string): Promise<string | null> {
+    if (!selectors.length) return null;
+    this.log(`Choosing locator via OpenAI from ${selectors.length} candidate(s)`);
+    const prompt = [
+      "Pick the single best selector for reliable browser automation.",
+      "Return strict JSON only: {\"selector\":\"string\"}",
+      `Step description: ${stepDescription}`,
+      `Candidate selectors: ${JSON.stringify(selectors)}`,
+      `Current DOM snapshot:\n${this.trimDomForPrompt(dom)}`
+    ].join("\n");
+    const text = await this.responses(prompt, "You are a QA automation locator-selection assistant.");
+    if (!text) return null;
+    try {
+      const cleaned = text.replace(/^```json\s*/i, "").replace(/^```|```$/g, "").trim();
+      const parsed = JSON.parse(cleaned) as { selector?: string };
+      if (parsed.selector && selectors.includes(parsed.selector)) {
+        this.log(`Locator selected by OpenAI: ${parsed.selector}`);
+        return parsed.selector;
+      }
+    } catch {
+      // Fall through to deterministic fallback.
+    }
+    this.log("OpenAI locator selection was invalid; deterministic fallback will be used");
+    return null;
+  }
+
+  private trimDomForPrompt(dom?: string): string {
+    if (!dom?.trim()) return "<dom unavailable>";
+    const maxChars = 10_000;
+    if (dom.length <= maxChars) return dom;
+    return `${dom.slice(0, maxChars)}\n<!-- DOM truncated for prompt size -->`;
+  }
+
   private async responses(input: string, instructions: string): Promise<string | null> {
     if (!this.apiKey) {
       this.log("OPENAI_API_KEY is not set; skipping OpenAI call");
