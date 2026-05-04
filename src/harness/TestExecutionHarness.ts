@@ -68,6 +68,19 @@ export class TestExecutionHarness {
     this.state.log(`[${testCaseId}/${step.id}] Building action suggestion and selector alternatives`);
     const suggestion = this.agent.suggestAction(step);
     const candidateSelectors = this.healing.buildAlternativeSelectors(step.selector, suggestion.alternatives);
+    const domForLocatorChoice = await this.tools.get_dom();
+    const llmPreferredSelector =
+      candidateSelectors.length > 0 ? await this.agent.chooseBestLocator(step, candidateSelectors, domForLocatorChoice.dom) : null;
+    if (llmPreferredSelector) {
+      const preferredIndex = candidateSelectors.indexOf(llmPreferredSelector);
+      if (preferredIndex > 0) {
+        candidateSelectors.splice(preferredIndex, 1);
+        candidateSelectors.unshift(llmPreferredSelector);
+      }
+      this.state.log(`[${testCaseId}/${step.id}] LLM preferred selector: ${llmPreferredSelector}`);
+    } else if (candidateSelectors.length > 0) {
+      this.state.log(`[${testCaseId}/${step.id}] LLM selector preference unavailable; using deterministic selector order`);
+    }
     this.state.log(`[${testCaseId}/${step.id}] Candidate selectors: ${candidateSelectors.join(" | ") || "<none>"}`);
 
     for (let attempt = 1; attempt <= this.config.maxRetriesPerStep; attempt++) {
