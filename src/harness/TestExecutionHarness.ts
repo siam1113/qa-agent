@@ -22,11 +22,13 @@ export class TestExecutionHarness {
     this.state.log(`Harness started for story: ${userStory}`);
     this.state.log(`Harness configuration: baseUrl=${this.config.baseUrl ?? "http://localhost:3000"} maxRetriesPerStep=${this.config.maxRetriesPerStep} outputDir=${this.config.outputDir}`);
     this.state.userStory = userStory;
+    this.state.transitionTo("planning", "starting test planning");
     this.state.log("Requesting test-case generation from agent");
     this.state.testCases = await this.agent.generateTestCases(userStory);
     this.state.log(`Generated ${this.state.testCases.length} test case(s)`);
 
     await this.tools.init();
+    this.state.transitionTo("executing", "test cases ready");
     try {
       for (const testCase of this.state.testCases) {
         this.state.log(`[${testCase.id}] Starting test case: ${testCase.name}`);
@@ -58,6 +60,8 @@ export class TestExecutionHarness {
       this.state.log("Browser session closed");
     }
 
+    this.state.transitionTo(this.state.results.some((r) => r.status === "failed") ? "failed" : "completed", "run finished");
+
     const report = this.state.buildReport(startedAt);
     this.storage.write("reports/execution-report.json", JSON.stringify(report, null, 2));
     this.storage.write("artifacts/generated-test-cases.json", JSON.stringify(this.state.testCases, null, 2));
@@ -65,6 +69,9 @@ export class TestExecutionHarness {
   }
 
   private async executeStepWithRetries(testCaseId: string, step: TestStep, testResult: TestCaseExecutionResult): Promise<boolean> {
+    if (this.state.phase !== "executing") {
+      this.state.transitionTo("executing", `starting step ${testCaseId}/${step.id}`);
+    }
     this.state.log(`[${testCaseId}/${step.id}] Building action suggestion and selector alternatives`);
     const suggestion = this.agent.suggestAction(step);
     const candidateSelectors = this.healing.buildAlternativeSelectors(step.selector, suggestion.alternatives);
@@ -99,16 +106,22 @@ export class TestExecutionHarness {
         executed = { success: false, message: reason };
       }
       this.state.log(`[${testCaseId}/${step.id}] Tool execution result: success=${executed.success} message=${executed.message}`);
+      this.state.transitionTo("verifying", `verifying ${testCaseId}/${step.id} attempt ${attempt}`);
       const verified = await this.verifier.verify({ ...step, selector }, executed);
       this.state.log(`[${testCaseId}/${step.id}] Verifier result on attempt ${attempt}: ok=${verified.ok} reason=${verified.reason}`);
 
+      const classification = verified.ok ? undefined : this.healing.classifyFailureDetailed(verified.reason);
       const stepAttempt: StepAttempt = {
         stepId: step.id,
         attempt,
         success: verified.ok,
         message: verified.reason,
         selectorUsed: selector,
-        failureType: verified.ok ? undefined : this.healing.classifyFailure(verified.reason),
+        failureType: classification?.type,
+        failureCategory: classification?.category,
+        failureConfidence: classification?.confidence,
+        retryable: classification?.retryable,
+        phase: this.state.phase,
         timestamp: new Date().toISOString()
       };
 
@@ -120,6 +133,12 @@ export class TestExecutionHarness {
         this.state.log(`[${testCaseId}/${step.id}] Verification passed; capturing DOM and screenshot`);
         const domResult = await this.tools.get_dom();
         if (domResult.dom) {
+          this.state.transitionTo("capturing_artifacts", `capturing artifacts ${testCaseId}/${step.id}`);
+          const previousDom = this.state.domSnapshots[testCaseId]?.at(-1);
+          const domDiff = this.healing.diffDomSnapshots(previousDom, domResult.dom);
+          if (domDiff) {
+            stepAttempt.domDiff = domDiff;
+          }
           this.state.saveDomSnapshot(testCaseId, domResult.dom);
           this.storage.write(`snapshots/${testCaseId}-${step.id}-attempt${attempt}.html`, domResult.dom);
           this.state.log(`[${testCaseId}/${step.id}] DOM snapshot persisted for attempt ${attempt}`);
@@ -130,7 +149,9 @@ export class TestExecutionHarness {
       }
 
       this.state.log(`[${testCaseId}/${step.id}] Verification failed on attempt ${attempt}; waiting before retry`);
+      this.state.transitionTo("retrying", `retry scheduled for ${testCaseId}/${step.id} attempt ${attempt + 1}`);
       await new Promise((resolve) => setTimeout(resolve, 300));
+      this.state.transitionTo("executing", `retrying ${testCaseId}/${step.id}`);
     }
 
     this.state.log(`[${testCaseId}/${step.id}] Exhausted all ${this.config.maxRetriesPerStep} attempt(s) without success`);

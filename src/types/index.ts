@@ -2,6 +2,40 @@ export type ActionType = "open_page" | "click" | "type" | "extract_text" | "get_
 
 export type FailureType = "selector_issue" | "timing_issue" | "logic_issue" | "unknown";
 
+export type ExecutionPhase =
+  | "idle"
+  | "planning"
+  | "executing"
+  | "retrying"
+  | "verifying"
+  | "capturing_artifacts"
+  | "completed"
+  | "failed";
+
+export type FailureCategory =
+  | "selector_missing"
+  | "selector_ambiguous"
+  | "timing_timeout"
+  | "assertion_mismatch"
+  | "navigation_error"
+  | "tooling_error"
+  | "unknown";
+
+export interface FailureClassification {
+  type: FailureType;
+  category: FailureCategory;
+  confidence: number;
+  retryable: boolean;
+  reason: string;
+}
+
+export interface DomDiffSummary {
+  similarity: number;
+  addedNodes: number;
+  removedNodes: number;
+  changedTokens: number;
+}
+
 export interface TestStep {
   id: string;
   description: string;
@@ -33,9 +67,14 @@ export interface StepAttempt {
   attempt: number;
   success: boolean;
   failureType?: FailureType;
+  failureCategory?: FailureCategory;
+  failureConfidence?: number;
+  retryable?: boolean;
   message: string;
   selectorUsed?: string;
   timestamp: string;
+  phase: ExecutionPhase;
+  domDiff?: DomDiffSummary;
 }
 
 export interface StepExecutionResult {

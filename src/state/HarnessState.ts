@@ -1,4 +1,4 @@
-import { ExecutionReport, StepAttempt, TestCase, TestCaseExecutionResult } from "../types";
+import { ExecutionPhase, ExecutionReport, StepAttempt, TestCase, TestCaseExecutionResult } from "../types";
 
 export class HarnessState {
   constructor(private readonly echoToConsole = false) {}
@@ -9,6 +9,18 @@ export class HarnessState {
   domSnapshots: Record<string, string[]> = {};
   executionLogs: string[] = [];
   results: TestCaseExecutionResult[] = [];
+  phase: ExecutionPhase = "idle";
+
+  private readonly transitions: Record<ExecutionPhase, ExecutionPhase[]> = {
+    idle: ["planning"],
+    planning: ["executing", "failed"],
+    executing: ["verifying", "retrying", "failed"],
+    retrying: ["executing", "failed"],
+    verifying: ["capturing_artifacts", "retrying", "failed"],
+    capturing_artifacts: ["executing", "completed", "failed"],
+    completed: [],
+    failed: []
+  };
 
   log(message: string): void {
     const entry = `${new Date().toISOString()} ${message}`;
@@ -20,6 +32,15 @@ export class HarnessState {
 
   addStepAttempt(attempt: StepAttempt): void {
     this.stepHistory.push(attempt);
+  }
+
+  transitionTo(next: ExecutionPhase, context: string): void {
+    const allowed = this.transitions[this.phase] ?? [];
+    if (!allowed.includes(next)) {
+      throw new Error(`Invalid harness state transition: ${this.phase} -> ${next} (${context})`);
+    }
+    this.log(`State transition ${this.phase} -> ${next} (${context})`);
+    this.phase = next;
   }
 
   saveDomSnapshot(testCaseId: string, dom: string): void {
