@@ -19,6 +19,7 @@ export class TestExecutionHarness {
 
   async run(userStory: string): Promise<void> {
     const startedAt = new Date().toISOString();
+    this.state.log(`Harness started for story: ${userStory}`);
     this.state.userStory = userStory;
     this.state.testCases = await this.agent.generateTestCases(userStory);
     this.state.log(`Generated ${this.state.testCases.length} test case(s)`);
@@ -26,6 +27,7 @@ export class TestExecutionHarness {
     await this.tools.init();
     try {
       for (const testCase of this.state.testCases) {
+        this.state.log(`[${testCase.id}] Starting test case: ${testCase.name}`);
         const result: TestCaseExecutionResult = {
           testCaseId: testCase.id,
           testCaseName: testCase.name,
@@ -35,24 +37,29 @@ export class TestExecutionHarness {
         };
 
         for (const step of testCase.steps) {
+          this.state.log(`[${testCase.id}/${step.id}] Starting step: ${step.description}`);
           const stepSuccess = await this.executeStepWithRetries(testCase.id, step, result);
           if (!stepSuccess) {
             result.status = "failed";
             result.failedStepId = step.id;
+            this.state.log(`[${testCase.id}] Failed on step: ${step.id}`);
             break;
           }
           result.passedStepIds.push(step.id);
         }
 
+        this.state.log(`[${testCase.id}] Completed with status=${result.status}`);
         this.state.results.push(result);
       }
     } finally {
       await this.tools.close();
+      this.state.log("Browser session closed");
     }
 
     const report = this.state.buildReport(startedAt);
     this.storage.write("reports/execution-report.json", JSON.stringify(report, null, 2));
     this.storage.write("artifacts/generated-test-cases.json", JSON.stringify(this.state.testCases, null, 2));
+    this.state.log("Execution artifacts persisted to storage");
   }
 
   private async executeStepWithRetries(testCaseId: string, step: TestStep, testResult: TestCaseExecutionResult): Promise<boolean> {
@@ -66,6 +73,7 @@ export class TestExecutionHarness {
       }
 
       const executed = await this.executeTool(step, selector);
+      this.state.log(`[${testCaseId}/${step.id}] Tool execution result: success=${executed.success} message=${executed.message}`);
       const verified = await this.verifier.verify({ ...step, selector }, executed);
 
       const stepAttempt: StepAttempt = {

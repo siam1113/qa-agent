@@ -18,6 +18,7 @@ async function main(): Promise<void> {
   mkdirSync(outputDir, { recursive: true });
 
   const state = new HarnessState();
+  state.log(`Initializing harness for framework=${framework}`);
   const storage = new FileStorage(outputDir);
   const agent = new AgentEngine();
   const tools = new BrowserTools();
@@ -41,6 +42,7 @@ async function main(): Promise<void> {
   );
 
   await harness.run(userStory);
+  state.log("Harness run completed");
 
   const reporter = new ExecutionReporter();
   const codegen = new TestCodeGenerator();
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
     framework === "playwright" ? "generated/generated.spec.ts" : "generated/generated.cy.ts",
     await codegen.generate(framework, state.testCases)
   );
+  state.log("Final report and generated test code saved");
 
   console.log("Harness execution complete. Output stored in ./output");
 }
