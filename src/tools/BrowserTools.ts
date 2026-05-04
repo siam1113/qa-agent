@@ -5,14 +5,20 @@ export class BrowserTools {
   private browser?: Browser;
   private page?: Page;
 
+  constructor(private readonly log?: (message: string) => void) {}
+
   async init(): Promise<void> {
+    this.log?.("[BrowserTools] Initializing browser session");
     this.browser = await chromium.launch({ headless: true });
     const context = await this.browser.newContext();
     this.page = await context.newPage();
+    this.log?.("[BrowserTools] Browser session initialized");
   }
 
   async close(): Promise<void> {
+    this.log?.("[BrowserTools] Closing browser session");
     await this.browser?.close();
+    this.log?.("[BrowserTools] Browser session closed");
   }
 
   async open_page(url: string): Promise<StepExecutionResult> {

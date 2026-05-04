@@ -1,6 +1,8 @@
 import { ExecutionReport, StepAttempt, TestCase, TestCaseExecutionResult } from "../types";
 
 export class HarnessState {
+  constructor(private readonly echoToConsole = false) {}
+
   userStory = "";
   testCases: TestCase[] = [];
   stepHistory: StepAttempt[] = [];
@@ -9,7 +11,11 @@ export class HarnessState {
   results: TestCaseExecutionResult[] = [];
 
   log(message: string): void {
-    this.executionLogs.push(`${new Date().toISOString()} ${message}`);
+    const entry = `${new Date().toISOString()} ${message}`;
+    this.executionLogs.push(entry);
+    if (this.echoToConsole) {
+      console.log(entry);
+    }
   }
 
   addStepAttempt(attempt: StepAttempt): void {
