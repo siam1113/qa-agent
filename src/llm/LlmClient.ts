@@ -41,7 +41,8 @@ export class LlmClient {
     this.log(`Choosing locators via OpenAI from ${selectors.length} candidate(s)`);
     const prompt = [
       "Pick the best 5 CSS selectors for reliable browser automation in ranked order.",
-      "You may propose a selector not listed in candidates if DOM suggests a better one.",
+      "Do not make assumptions. Only pick selectors that are explicitly supported by the provided DOM snapshot.",
+      "Only return selectors from the provided candidate selectors list.",
       "Return strict JSON only: {\"selectors\":[\"string\",\"string\",\"string\",\"string\",\"string\"]}",
       `Step description: ${stepDescription}`,
       `Retry attempt: ${attempt ?? 1}`,

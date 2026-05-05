@@ -78,7 +78,7 @@ export class TestExecutionHarness {
     let lastFailureReason: string | undefined;
 
     for (let attempt = 1; attempt <= this.config.maxRetriesPerStep; attempt++) {
-      let selector = step.selector;
+      let selectorsForAttempt = step.selector ? [step.selector] : [];
       if (step.action === "click" || step.action === "type" || step.action === "extract_text") {
         const domForLocatorChoice = await this.tools.get_dom();
         const llmTopSelectors = await this.agent.chooseBestLocators(
@@ -95,28 +95,56 @@ export class TestExecutionHarness {
 
         if (llmTopSelectors.length > 0) {
           candidateSelectors.splice(0, candidateSelectors.length, ...llmTopSelectors);
-          selector = llmTopSelectors[0];
-          this.state.log(`[${testCaseId}/${step.id}] LLM preferred selector on attempt ${attempt}: ${selector}`);
+          selectorsForAttempt = llmTopSelectors.slice(0, 5);
+          this.state.log(`[${testCaseId}/${step.id}] LLM preferred selector on attempt ${attempt}: ${selectorsForAttempt[0]}`);
         } else {
-          selector = undefined;
+          selectorsForAttempt = [];
           this.state.log(`[${testCaseId}/${step.id}] LLM returned no selector suggestions on attempt ${attempt}; no deterministic fallback will be used`);
         }
       }
 
       this.state.log(`[${testCaseId}/${step.id}] Candidate selectors: ${candidateSelectors.join(" | ") || "<none>"}`);
+      if (selectorsForAttempt.length === 0 && (step.action === "click" || step.action === "type" || step.action === "extract_text")) {
+        this.state.log(`[${testCaseId}/${step.id}] No selectors available for attempt ${attempt}`);
+      }
 
-      this.state.log(`[${testCaseId}/${step.id}] Attempt ${attempt} executing action=${step.action} selector=${selector ?? "<none>"}`);
-      let executed;
-      try {
-        executed = await this.executeTool(step, selector);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.state.log(`[${testCaseId}/${step.id}] Tool execution threw error on attempt ${attempt}: ${reason}`);
-        executed = { success: false, message: reason };
+      let executed = { success: false, message: "No selector execution attempted" };
+      let selectorUsed: string | undefined;
+      const selectorsToTry = (step.action === "click" || step.action === "type" || step.action === "extract_text")
+        ? selectorsForAttempt.slice(0, 5)
+        : [undefined];
+
+      for (const [index, selector] of selectorsToTry.entries()) {
+        selectorUsed = selector;
+        this.state.log(`[${testCaseId}/${step.id}] Attempt ${attempt} selector try ${index + 1}/${selectorsToTry.length}: action=${step.action} selector=${selector ?? "<none>"}`);
+        try {
+          executed = await this.executeTool(step, selector);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.state.log(`[${testCaseId}/${step.id}] Tool execution threw error on attempt ${attempt} selector try ${index + 1}: ${reason}`);
+          executed = { success: false, message: reason };
+        }
+        this.state.log(`[${testCaseId}/${step.id}] Selector try ${index + 1} result: success=${executed.success} message=${executed.message}`);
+        if (executed.success) {
+          break;
+        }
+      }
+
+      if (!executed.success && selectorsToTry.length > 1) {
+        const combinedSelector = selectorsToTry.filter(Boolean).join(", ");
+        selectorUsed = combinedSelector || selectorUsed;
+        this.state.log(`[${testCaseId}/${step.id}] Attempt ${attempt} final fallback with combined selector: ${combinedSelector || "<none>"}`);
+        try {
+          executed = await this.executeTool(step, combinedSelector || undefined);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.state.log(`[${testCaseId}/${step.id}] Combined-selector fallback failed on attempt ${attempt}: ${reason}`);
+          executed = { success: false, message: reason };
+        }
       }
       this.state.log(`[${testCaseId}/${step.id}] Tool execution result: success=${executed.success} message=${executed.message}`);
       this.state.transitionTo("verifying", `verifying ${testCaseId}/${step.id} attempt ${attempt}`);
-      const verified = await this.verifier.verify({ ...step, selector }, executed);
+      const verified = await this.verifier.verify({ ...step, selector: selectorUsed }, executed);
       this.state.log(`[${testCaseId}/${step.id}] Verifier result on attempt ${attempt}: ok=${verified.ok} reason=${verified.reason}`);
 
       const classification = verified.ok ? undefined : this.healing.classifyFailureDetailed(verified.reason);
@@ -125,7 +153,7 @@ export class TestExecutionHarness {
         attempt,
         success: verified.ok,
         message: verified.reason,
-        selectorUsed: selector,
+        selectorUsed,
         failureType: classification?.type,
         failureCategory: classification?.category,
         failureConfidence: classification?.confidence,
