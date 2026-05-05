@@ -47,7 +47,7 @@ export class BrowserTools {
 
   async get_dom(): Promise<StepExecutionResult> {
     const page = this.ensurePage();
-    await page.waitForLoadState("domcontentloaded");
+    await page.waitForLoadState("networkidle", { timeout: 60_000 });
     const [dom, pageUrl, pageTitle] = await Promise.all([
       page.content(),
       page.url(),
