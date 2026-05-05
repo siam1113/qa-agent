@@ -86,7 +86,9 @@ export class TestExecutionHarness {
           candidateSelectors,
           domForLocatorChoice.dom,
           attempt,
-          lastFailureReason
+          lastFailureReason,
+          domForLocatorChoice.pageUrl,
+          domForLocatorChoice.pageTitle
         );
 
         if (llmPreferredSelector) {

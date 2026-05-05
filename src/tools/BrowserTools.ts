@@ -47,8 +47,13 @@ export class BrowserTools {
 
   async get_dom(): Promise<StepExecutionResult> {
     const page = this.ensurePage();
-    const dom = await page.content();
-    return { success: true, message: "DOM captured", dom };
+    await page.waitForLoadState("domcontentloaded");
+    const [dom, pageUrl, pageTitle] = await Promise.all([
+      page.content(),
+      page.url(),
+      page.title().catch(() => "")
+    ]);
+    return { success: true, message: "DOM captured", dom, pageUrl, pageTitle };
   }
 
   async take_screenshot(path: string): Promise<StepExecutionResult> {

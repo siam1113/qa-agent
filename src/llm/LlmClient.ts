@@ -37,7 +37,7 @@ export class LlmClient {
     return code;
   }
 
-  async chooseLocator(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string): Promise<string | null> {
+  async chooseLocator(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string, pageUrl?: string, pageTitle?: string): Promise<string | null> {
     this.log(`Choosing locator via OpenAI from ${selectors.length} candidate(s)`);
     const prompt = [
       "Pick the single best CSS selector for reliable browser automation.",
@@ -46,6 +46,8 @@ export class LlmClient {
       `Step description: ${stepDescription}`,
       `Retry attempt: ${attempt ?? 1}`,
       `Previous failure signal: ${lastFailureReason ?? "<none>"}`,
+      `Active page URL: ${pageUrl ?? "<unknown>"}`,
+      `Active page title: ${pageTitle ?? "<unknown>"}`,
       `Candidate selectors: ${JSON.stringify(selectors)}`,
       `Current DOM snapshot:\n${this.trimDomForPrompt(dom)}`
     ].join("\n");
@@ -67,9 +69,11 @@ export class LlmClient {
 
   private trimDomForPrompt(dom?: string): string {
     if (!dom?.trim()) return "<dom unavailable>";
-    const maxChars = 10_000;
+    const maxChars = 40_000;
     if (dom.length <= maxChars) return dom;
-    return `${dom.slice(0, maxChars)}\n<!-- DOM truncated for prompt size -->`;
+    const head = dom.slice(0, 20_000);
+    const tail = dom.slice(-20_000);
+    return `${head}\n<!-- DOM truncated: middle removed -->\n${tail}`;
   }
 
   private async responses(input: string, instructions: string): Promise<string | null> {

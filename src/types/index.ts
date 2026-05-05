@@ -83,6 +83,8 @@ export interface StepExecutionResult {
   dom?: string;
   screenshotPath?: string;
   extractedText?: string;
+  pageUrl?: string;
+  pageTitle?: string;
 }
 
 export interface TestCaseExecutionResult {
