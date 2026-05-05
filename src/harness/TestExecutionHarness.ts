@@ -81,7 +81,7 @@ export class TestExecutionHarness {
       let selector = step.selector;
       if (step.action === "click" || step.action === "type" || step.action === "extract_text") {
         const domForLocatorChoice = await this.tools.get_dom();
-        const llmPreferredSelector = await this.agent.chooseBestLocator(
+        const llmTopSelectors = await this.agent.chooseBestLocators(
           step,
           candidateSelectors,
           domForLocatorChoice.dom,
@@ -91,21 +91,15 @@ export class TestExecutionHarness {
           domForLocatorChoice.pageTitle
         );
 
-        if (llmPreferredSelector) {
-          if (!candidateSelectors.includes(llmPreferredSelector)) {
-            candidateSelectors.unshift(llmPreferredSelector);
-          } else {
-            const preferredIndex = candidateSelectors.indexOf(llmPreferredSelector);
-            if (preferredIndex > 0) {
-              candidateSelectors.splice(preferredIndex, 1);
-              candidateSelectors.unshift(llmPreferredSelector);
-            }
-          }
-          selector = llmPreferredSelector;
-          this.state.log(`[${testCaseId}/${step.id}] LLM preferred selector on attempt ${attempt}: ${llmPreferredSelector}`);
-        } else if (candidateSelectors.length > 0) {
-          selector = candidateSelectors[Math.min(attempt - 1, candidateSelectors.length - 1)];
-          this.state.log(`[${testCaseId}/${step.id}] LLM selector preference unavailable on attempt ${attempt}; using deterministic selector=${selector}`);
+        this.state.log(`[${testCaseId}/${step.id}] AI selector suggestions (top ${llmTopSelectors.length || 0}): ${llmTopSelectors.join(" | ") || "<none>"}`);
+
+        if (llmTopSelectors.length > 0) {
+          candidateSelectors.splice(0, candidateSelectors.length, ...llmTopSelectors);
+          selector = llmTopSelectors[0];
+          this.state.log(`[${testCaseId}/${step.id}] LLM preferred selector on attempt ${attempt}: ${selector}`);
+        } else {
+          selector = undefined;
+          this.state.log(`[${testCaseId}/${step.id}] LLM returned no selector suggestions on attempt ${attempt}; no deterministic fallback will be used`);
         }
       }
 
@@ -179,11 +173,11 @@ export class TestExecutionHarness {
       case "open_page":
         return this.tools.open_page(this.fullUrl(step.url ?? "/"));
       case "click":
-        return this.tools.click(selectorOverride ?? step.selector ?? "");
+        return this.tools.click(selectorOverride ?? "");
       case "type":
-        return this.tools.type(selectorOverride ?? step.selector ?? "", step.value ?? "");
+        return this.tools.type(selectorOverride ?? "", step.value ?? "");
       case "extract_text":
-        return this.tools.extract_text(selectorOverride ?? step.selector ?? "");
+        return this.tools.extract_text(selectorOverride ?? "");
       case "get_dom":
         return this.tools.get_dom();
       case "take_screenshot":

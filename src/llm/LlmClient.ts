@@ -37,12 +37,12 @@ export class LlmClient {
     return code;
   }
 
-  async chooseLocator(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string, pageUrl?: string, pageTitle?: string): Promise<string | null> {
-    this.log(`Choosing locator via OpenAI from ${selectors.length} candidate(s)`);
+  async chooseLocators(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string, pageUrl?: string, pageTitle?: string): Promise<string[]> {
+    this.log(`Choosing locators via OpenAI from ${selectors.length} candidate(s)`);
     const prompt = [
-      "Pick the single best CSS selector for reliable browser automation.",
+      "Pick the best 5 CSS selectors for reliable browser automation in ranked order.",
       "You may propose a selector not listed in candidates if DOM suggests a better one.",
-      "Return strict JSON only: {\"selector\":\"string\"}",
+      "Return strict JSON only: {\"selectors\":[\"string\",\"string\",\"string\",\"string\",\"string\"]}",
       `Step description: ${stepDescription}`,
       `Retry attempt: ${attempt ?? 1}`,
       `Previous failure signal: ${lastFailureReason ?? "<none>"}`,
@@ -52,19 +52,20 @@ export class LlmClient {
       `Current DOM snapshot:\n${this.trimDomForPrompt(dom)}`
     ].join("\n");
     const text = await this.responses(prompt, "You are a QA automation locator-selection assistant.");
-    if (!text) return null;
+    if (!text) return [];
     try {
       const cleaned = text.replace(/^```json\s*/i, "").replace(/^```|```$/g, "").trim();
-      const parsed = JSON.parse(cleaned) as { selector?: string };
-      if (parsed.selector?.trim()) {
-        this.log(`Locator selected by OpenAI: ${parsed.selector}`);
-        return parsed.selector.trim();
+      const parsed = JSON.parse(cleaned) as { selectors?: string[] };
+      const rankedSelectors = (parsed.selectors ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 5);
+      if (rankedSelectors.length > 0) {
+        this.log(`Top locator suggestions by OpenAI: ${rankedSelectors.join(" | ")}`);
       }
+      return rankedSelectors;
     } catch {
-      // Fall through to deterministic fallback.
+      // Fall through to empty suggestion list.
     }
-    this.log("OpenAI locator selection was invalid; deterministic fallback will be used");
-    return null;
+    this.log("OpenAI locator selection was invalid; no selector suggestions returned");
+    return [];
   }
 
   private trimDomForPrompt(dom?: string): string {

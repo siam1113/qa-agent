@@ -47,7 +47,7 @@ export class AgentEngine {
     };
   }
 
-  async chooseBestLocator(
+  async chooseBestLocators(
     step: TestStep,
     selectors: string[],
     dom?: string,
@@ -55,8 +55,8 @@ export class AgentEngine {
     lastFailureReason?: string,
     pageUrl?: string,
     pageTitle?: string
-  ): Promise<string | null> {
-    return this.llm.chooseLocator(step.description, selectors, dom, attempt, lastFailureReason, pageUrl, pageTitle);
+  ): Promise<string[]> {
+    return this.llm.chooseLocators(step.description, selectors, dom, attempt, lastFailureReason, pageUrl, pageTitle);
   }
 
   private generateSelectorAlternatives(selector: string): string[] {
