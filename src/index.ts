@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     {
       maxRetriesPerStep: 3,
       stepTimeoutMs: 5_000,
-      baseUrl: "http://localhost:3000",
+      baseUrl: "https://youtube.com",
       outputDir,
       framework
     },

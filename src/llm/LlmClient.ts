@@ -9,7 +9,6 @@ interface OpenAIResponse {
 
 export class LlmClient {
   private readonly apiKey = process.env.OPENAI_API_KEY;
-  private readonly model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
   get enabled(): boolean {
     return Boolean(this.apiKey);
@@ -40,9 +39,8 @@ export class LlmClient {
   async chooseLocators(stepDescription: string, selectors: string[], dom?: string, attempt?: number, lastFailureReason?: string, pageUrl?: string, pageTitle?: string): Promise<string[]> {
     this.log(`Choosing locators via OpenAI from ${selectors.length} candidate(s)`);
     const prompt = [
-      "Pick the best 5 CSS selectors for reliable browser automation in ranked order.",
+      "Pick the top 5 unique playwright selectors for reliable browser automation in ranked order relevant to the step description. Prioritize robustness and stability over brevity.",
       "Do not make assumptions. Only pick selectors that are explicitly supported by the provided DOM snapshot.",
-      "Only return selectors from the provided candidate selectors list.",
       "Return strict JSON only: {\"selectors\":[\"string\",\"string\",\"string\",\"string\",\"string\"]}",
       `Step description: ${stepDescription}`,
       `Retry attempt: ${attempt ?? 1}`,
